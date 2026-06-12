@@ -1,5 +1,9 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
 
 from sklearn.model_selection import train_test_split
 from sklearn.impute import KNNImputer
@@ -11,6 +15,9 @@ from sklearn.metrics import (
     recall_score,
     f1_score,
 )
+
+from sklearn.metrics import recall_score
+
 from sklearn.preprocessing import StandardScaler
 
 from imblearn.under_sampling import RandomUnderSampler
@@ -18,11 +25,88 @@ from imblearn.over_sampling import RandomOverSampler, SMOTE, ADASYN
 
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
-
+from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
 from sklearn.metrics import (
     roc_auc_score,
     classification_report
 )
+
+st.markdown("""
+<style>
+.main {
+    background-color:#0E1117;
+}
+
+h1,h2,h3 {
+    color:#00C6FF;
+}
+
+[data-testid="stMetric"]{
+    background:#1e293b;
+    padding:15px;
+    border-radius:10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# st.markdown("---")
+
+# st.markdown(
+# """
+# <center>
+# <h4>🏦 Risk Alert Classifier</h4>
+# Created by Disha Lukhi
+# </center>
+# """,
+# unsafe_allow_html=True
+# )
+
+st.sidebar.image(
+    "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+    width=120
+)
+
+st.sidebar.title("Risk Alert Classifier")
+
+menu = st.sidebar.radio(
+    "Navigation",
+    [
+        "🏠 Home",
+        "📊 Dataset",
+        "📈 Logistic Regression",
+        "⚖️ Imbalanced Data"
+    ]
+)
+
+
+# st.sidebar.title("🏦 Navigation")
+
+# menu = st.sidebar.radio(
+#     "Select Page",
+#     [
+#         "Home",
+#         "Dataset Analysis",
+#         "Baseline Model",
+#         "Imbalanced Data"
+#     ]
+# )
+
+if menu == "🏠 Home":
+
+    st.title("🏦 Risk Alert Classifier Dashboard")
+
+    c1,c2,c3 = st.columns(3)
+
+    c1.metric("Models","4")
+    c2.metric("Techniques","4")
+    c3.metric("Project Parts","8")
+
+    st.success(
+        "Upload your dataset from the Dataset page."
+    )
+
+    st.stop()
 # -----------------------------
 # PAGE CONFIG
 # -----------------------------
@@ -167,6 +251,28 @@ if uploaded_file is not None:
             X_test.shape[0]
         )
 
+
+        
+    st.subheader("📊 Class Distribution")
+
+    class_counts = y.value_counts().reset_index()
+    class_counts.columns = ["Risk Status", "Count"]
+
+    fig = px.bar(
+        class_counts,
+        x="Risk Status",
+        y="Count",
+        color="Risk Status",
+        text="Count",
+        title="Distribution of Risk Classes"
+    )
+
+    fig.update_layout(
+        template="plotly_dark",
+        height=500
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
     # -----------------------------
     # PART C
     # -----------------------------
@@ -239,6 +345,22 @@ if uploaded_file is not None:
         zero_division=0
     )
 
+    cm = confusion_matrix(y_test, y_pred)
+
+
+
+    fig, ax = plt.subplots(figsize=(6,4))
+
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        ax=ax
+    )
+
+    st.pyplot(fig)
+
     st.subheader("Performance Metrics")
 
     c1, c2 = st.columns(2)
@@ -283,90 +405,112 @@ if uploaded_file is not None:
         "Type-II Error = High Risk customer predicted as Safe."
     )
 
+    st.header("⚖️ Part D: Handling Imbalanced Data")
+
+    # Baseline metrics
+    baseline_recall = recall
+    baseline_f1 = f1
+
+    baseline_recall = recall_score(
+        y_test,
+        y_pred,
+        zero_division=0
+    )
+
+    baseline_f1 = f1_score(
+        y_test,
+        y_pred,
+        zero_division=0
+    )
+
+    try:
+        baseline_auc = roc_auc_score(y_test, y_pred)
+    except:
+        baseline_auc = 0
+
+    st.subheader("Before Balancing")
+
+    st.write(f"Recall : {baseline_recall:.4f}")
+    st.write(f"F1 Score : {baseline_f1:.4f}")
+    st.write(f"AUC ROC : {baseline_auc:.4f}")
+
+    sampling_method = st.selectbox(
+        "Select Balancing Technique",
+        [
+            "Under Sampling",
+            "Over Sampling",
+            "SMOTE",
+            "ADASYN"
+        ]
+    )
+
+    if sampling_method == "Under Sampling":
+        sampler = RandomUnderSampler(random_state=42)
+
+    elif sampling_method == "Over Sampling":
+        sampler = RandomOverSampler(random_state=42)
+
+    elif sampling_method == "SMOTE":
+        sampler = SMOTE(random_state=42)
+
+    else:
+        sampler = ADASYN(random_state=42)
+
+    X_resampled, y_resampled = sampler.fit_resample(
+        X_train_scaled,
+        y_train
+    )
+
+    balanced_model = LogisticRegression(
+        max_iter=5000
+    )
+
+    balanced_model.fit(
+        X_resampled,
+        y_resampled
+    )
+
+    balanced_pred = balanced_model.predict(
+        X_test_scaled
+    )
+
+    balanced_recall = recall_score(
+        y_test,
+        balanced_pred,
+        zero_division=0
+    )
+
+    balanced_f1 = f1_score(
+        y_test,
+        balanced_pred,
+        zero_division=0
+    )
+
+    balanced_auc = roc_auc_score(
+        y_test,
+        balanced_pred
+    )
+
+    st.subheader("After Balancing")
+
+    st.write(f"Recall : {balanced_recall:.4f}")
+    st.write(f"F1 Score : {balanced_f1:.4f}")
+    st.write(f"AUC ROC : {balanced_auc:.4f}")
+
 else:
     st.info(
         "Please upload the dataset CSV file."
     )
 
 
-st.header("⚖️ Part D: Handling Imbalanced Data")
+st.markdown("---")
 
-# Baseline metrics
-baseline_recall = recall
-baseline_f1 = f1
-
-try:
-    baseline_auc = roc_auc_score(y_test, y_pred)
-except:
-    baseline_auc = 0
-
-st.subheader("Before Balancing")
-
-st.write(f"Recall : {baseline_recall:.4f}")
-st.write(f"F1 Score : {baseline_f1:.4f}")
-st.write(f"AUC ROC : {baseline_auc:.4f}")
-
-sampling_method = st.selectbox(
-    "Select Balancing Technique",
-    [
-        "Under Sampling",
-        "Over Sampling",
-        "SMOTE",
-        "ADASYN"
-    ]
+st.markdown(
+"""
+<center>
+<h4>🏦 Risk Alert Classifier</h4>
+Created by Disha Lukhi
+</center>
+""",
+unsafe_allow_html=True
 )
-
-if sampling_method == "Under Sampling":
-    sampler = RandomUnderSampler(random_state=42)
-
-elif sampling_method == "Over Sampling":
-    sampler = RandomOverSampler(random_state=42)
-
-elif sampling_method == "SMOTE":
-    sampler = SMOTE(random_state=42)
-
-else:
-    sampler = ADASYN(random_state=42)
-
-X_resampled, y_resampled = sampler.fit_resample(
-    X_train_scaled,
-    y_train
-)
-
-balanced_model = LogisticRegression(
-    max_iter=5000
-)
-
-balanced_model.fit(
-    X_resampled,
-    y_resampled
-)
-
-balanced_pred = balanced_model.predict(
-    X_test_scaled
-)
-
-balanced_recall = recall_score(
-    y_test,
-    balanced_pred,
-    zero_division=0
-)
-
-balanced_f1 = f1_score(
-    y_test,
-    balanced_pred,
-    zero_division=0
-)
-
-balanced_auc = roc_auc_score(
-    y_test,
-    balanced_pred
-)
-
-st.subheader("After Balancing")
-
-st.write(f"Recall : {balanced_recall:.4f}")
-st.write(f"F1 Score : {balanced_f1:.4f}")
-st.write(f"AUC ROC : {balanced_auc:.4f}")
-
-
