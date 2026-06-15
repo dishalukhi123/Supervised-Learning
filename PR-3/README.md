@@ -244,5 +244,5 @@ https://github.com/dishalukhi123/Supervised-Learning/blob/main/PR-3/Risk_Alert_C
 ## 📱 Streamlit App Link
 
 ```text
-https://your-app-name.streamlit.app
+https://risk-alert-classifier-app.streamlit.app/
 ```
