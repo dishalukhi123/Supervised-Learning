@@ -1,34 +1,38 @@
 """
-Message Intelligence System — Streamlit App
-Spam vs Legitimate message classification using KNN, SVM, and Naive Bayes.
+Message Intelligence System - Streamlit App
+----------------------------------------------
+Spam vs Legitimate message classifier comparing KNN, SVM (Linear & RBF),
+and Naive Bayes, built on top of Message_Intelligence_Dataset.csv.
 
 Run with:
-    pip install streamlit pandas numpy scikit-learn matplotlib seaborn
     streamlit run app.py
 """
 
+import re
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import matplotlib.pyplot as plt
+import seaborn as sns
 import streamlit as st
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
-    confusion_matrix, classification_report, roc_curve, auc
+    confusion_matrix, classification_report
 )
+from sklearn.decomposition import PCA
 
-# --------------------------------------------------------------------------------------
-# Page config
-# --------------------------------------------------------------------------------------
-st.set_page_config(page_title="Message Intelligence System", layout="wide", page_icon="📨")
+sns.set_style("whitegrid")
+
+st.set_page_config(
+    page_title="Message Intelligence System",
+    page_icon="📨",
+    layout="wide"
+)
 
 FEATURE_COLS = [
     'message_length', 'word_count', 'num_urls', 'num_digits',
@@ -36,347 +40,424 @@ FEATURE_COLS = [
     'sender_activity_score', 'sender_account_age_days',
     'messages_sent_last_24h', 'hour_of_day', 'day_of_week'
 ]
-TARGET_COL = 'spam_label'
+
+DATA_PATH = "Message_Intelligence_Dataset.csv"
 
 
-# --------------------------------------------------------------------------------------
-# Cached data + model helpers
-# --------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Data + model loading (cached so it only runs once per session)
+# ----------------------------------------------------------------------
 @st.cache_data
-def load_data(path_or_buffer):
-    df = pd.read_csv(path_or_buffer)
+def load_data():
+    df = pd.read_csv(DATA_PATH)
     return df
 
 
-@st.cache_data
-def preprocess(df, test_size, random_state):
+@st.cache_resource
+def train_models(df):
     X = df[FEATURE_COLS].copy()
-    y = df[TARGET_COL].copy()
+    y = df['spam_label'].copy()
 
-    # Median-impute any missing numeric values
     for c in X.columns[X.isna().any()]:
         X[c] = X[c].fillna(X[c].median())
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    return X, y, X_train, X_test, y_train, y_test, X_train_scaled, X_test_scaled, scaler
+    # ---- KNN: scan K to find the best by F1, then fit final model ----
+    k_values = list(range(1, 22, 2))
+    knn_rows = []
+    for k in k_values:
+        knn = KNeighborsClassifier(n_neighbors=k, metric='euclidean')
+        knn.fit(X_train_scaled, y_train)
+        pred = knn.predict(X_test_scaled)
+        knn_rows.append({
+            'K': k,
+            'Accuracy': accuracy_score(y_test, pred),
+            'Precision': precision_score(y_test, pred),
+            'Recall': recall_score(y_test, pred),
+            'F1': f1_score(y_test, pred)
+        })
+    knn_df = pd.DataFrame(knn_rows)
+    best_k = int(knn_df.loc[knn_df['F1'].idxmax(), 'K'])
 
+    knn_final = KNeighborsClassifier(n_neighbors=best_k, metric='euclidean')
+    knn_final.fit(X_train_scaled, y_train)
+    knn_pred = knn_final.predict(X_test_scaled)
 
-@st.cache_resource
-def train_models(X_train_scaled, X_train, y_train, knn_k, knn_metric, svm_kernel, svm_C, svm_gamma):
-    knn = KNeighborsClassifier(n_neighbors=knn_k, metric=knn_metric)
-    knn.fit(X_train_scaled, y_train)
+    # ---- SVM: Linear + RBF ----
+    svm_linear = SVC(kernel='linear', C=1.0, random_state=42, probability=True)
+    svm_linear.fit(X_train_scaled, y_train)
+    pred_lin = svm_linear.predict(X_test_scaled)
 
-    svm = SVC(kernel=svm_kernel, C=svm_C, gamma=svm_gamma, probability=True, random_state=42)
-    svm.fit(X_train_scaled, y_train)
+    svm_rbf = SVC(kernel='rbf', C=1.0, gamma='scale', random_state=42, probability=True)
+    svm_rbf.fit(X_train_scaled, y_train)
+    pred_rbf = svm_rbf.predict(X_test_scaled)
 
+    # ---- Naive Bayes (uses unscaled features) ----
     nb = GaussianNB()
-    nb.fit(X_train, y_train)  # Naive Bayes uses unscaled features
+    nb.fit(X_train, y_train)
+    nb_pred = nb.predict(X_test)
 
-    return knn, svm, nb
-
-
-def get_metrics(y_true, y_pred):
-    return {
-        "Accuracy": accuracy_score(y_true, y_pred),
-        "Precision": precision_score(y_true, y_pred, zero_division=0),
-        "Recall": recall_score(y_true, y_pred, zero_division=0),
-        "F1 Score": f1_score(y_true, y_pred, zero_division=0),
-    }
-
-
-def plot_confusion_plotly(y_true, y_pred, title, colorscale="Blues"):
-    cm = confusion_matrix(y_true, y_pred)
-    labels = ['Legit', 'Spam']
-    fig = px.imshow(
-        cm, text_auto=True, color_continuous_scale=colorscale,
-        x=labels, y=labels, labels=dict(x="Predicted", y="Actual", color="Count")
-    )
-    fig.update_layout(title=title, height=350, margin=dict(t=50, b=10, l=10, r=10))
-    return fig
-
-
-def plot_roc_plotly(models_preds_proba, y_true, title="ROC Curve Comparison"):
-    fig = go.Figure()
-    for name, proba in models_preds_proba.items():
-        fpr, tpr, _ = roc_curve(y_true, proba)
-        roc_auc = auc(fpr, tpr)
-        fig.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f"{name} (AUC={roc_auc:.3f})"))
-    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name="Random",
-                              line=dict(dash='dash', color='gray')))
-    fig.update_layout(title=title, xaxis_title="False Positive Rate",
-                       yaxis_title="True Positive Rate", height=450)
-    return fig
-
-
-# --------------------------------------------------------------------------------------
-# Sidebar — data source & settings
-# --------------------------------------------------------------------------------------
-st.sidebar.title("⚙️ Settings")
-
-uploaded = st.sidebar.file_uploader("Upload dataset CSV", type=["csv"])
-default_path = "Message_Intelligence_Dataset.csv"
-
-if uploaded is not None:
-    df = load_data(uploaded)
-elif __import__("os").path.exists(default_path):
-    df = load_data(default_path)
-else:
-    st.sidebar.warning("Upload `Message_Intelligence_Dataset.csv` to get started.")
-    st.stop()
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("Train/Test Split")
-test_size = st.sidebar.slider("Test size", 0.1, 0.4, 0.2, 0.05)
-random_state = st.sidebar.number_input("Random state", value=42, step=1)
-
-st.sidebar.subheader("KNN Hyperparameters")
-knn_k = st.sidebar.slider("K (neighbors)", 1, 25, 7, 2)
-knn_metric = st.sidebar.selectbox("Distance metric", ["euclidean", "manhattan", "chebyshev"])
-
-st.sidebar.subheader("SVM Hyperparameters")
-svm_kernel = st.sidebar.selectbox("Kernel", ["rbf", "linear", "poly"])
-svm_C = st.sidebar.slider("C (regularization)", 0.01, 10.0, 1.0, 0.01)
-svm_gamma = st.sidebar.selectbox("Gamma", ["scale", "auto"])
-
-X, y, X_train, X_test, y_train, y_test, X_train_scaled, X_test_scaled, scaler = preprocess(
-    df, test_size, random_state
-)
-knn, svm, nb = train_models(
-    X_train_scaled, X_train, y_train, knn_k, knn_metric, svm_kernel, svm_C, svm_gamma
-)
-
-knn_pred = knn.predict(X_test_scaled)
-svm_pred = svm.predict(X_test_scaled)
-nb_pred = nb.predict(X_test)
-
-# --------------------------------------------------------------------------------------
-# Header
-# --------------------------------------------------------------------------------------
-st.title("📨 Message Intelligence System")
-st.caption("Spam vs Legitimate message classification — KNN (distance-based) · SVM (margin-based) · Naive Bayes (probabilistic)")
-
-tab_overview, tab_eda, tab_models, tab_compare, tab_predict = st.tabs(
-    ["📋 Overview", "🔍 EDA", "🤖 Models", "📊 Comparison", "✉️ Try a Message"]
-)
-
-# --------------------------------------------------------------------------------------
-# TAB: Overview
-# --------------------------------------------------------------------------------------
-with tab_overview:
-    st.subheader("Dataset Snapshot")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total messages", len(df))
-    c2.metric("Spam (%)", f"{(df[TARGET_COL].mean() * 100):.1f}%")
-    c3.metric("Features used", len(FEATURE_COLS))
-
-    st.dataframe(df.head(20), use_container_width=True)
-
-    st.markdown("""
-    **Target variable:** `spam_label` → `0` = Legitimate, `1` = Spam
-
-    **Features:** message length, word count, URL/digit/special-character counts,
-    spam/legit keyword scores, sender activity score, sender account age,
-    messages sent in last 24h, hour of day, day of week.
-    """)
-
-# --------------------------------------------------------------------------------------
-# TAB: EDA
-# --------------------------------------------------------------------------------------
-with tab_eda:
-    st.subheader("Class Distribution")
-    col1, col2 = st.columns(2)
-
-    counts = df[TARGET_COL].value_counts().rename({0: "Legitimate", 1: "Spam"})
-    with col1:
-        fig_bar = px.bar(
-            x=counts.index, y=counts.values, color=counts.index,
-            color_discrete_map={"Legitimate": "#4C72B0", "Spam": "#DD8452"},
-            labels={"x": "Class", "y": "Count"}, title="Class Counts", text=counts.values
-        )
-        fig_bar.update_layout(showlegend=False, height=380)
-        st.plotly_chart(fig_bar, use_container_width=True)
-    with col2:
-        fig_pie = px.pie(
-            names=counts.index, values=counts.values,
-            color=counts.index,
-            color_discrete_map={"Legitimate": "#4C72B0", "Spam": "#DD8452"},
-            title="Class Proportion", hole=0.35
-        )
-        fig_pie.update_layout(height=380)
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-    st.subheader("Feature Correlation Heatmap")
-    corr = df[FEATURE_COLS + [TARGET_COL]].corr().round(2)
-    fig_corr = px.imshow(
-        corr, text_auto=True, color_continuous_scale="RdBu_r", zmin=-1, zmax=1,
-        aspect="auto"
-    )
-    fig_corr.update_layout(height=600, margin=dict(t=30, b=10, l=10, r=10))
-    st.plotly_chart(fig_corr, use_container_width=True)
-
-    st.subheader("Feature Distributions by Class")
-    feat_choice = st.selectbox("Choose a feature", FEATURE_COLS)
-    plot_df = df.copy()
-    plot_df['Label'] = plot_df[TARGET_COL].map({0: "Legitimate", 1: "Spam"})
-    fig_hist = px.histogram(
-        plot_df, x=feat_choice, color="Label", barmode="overlay", marginal="box",
-        color_discrete_map={"Legitimate": "#4C72B0", "Spam": "#DD8452"},
-        opacity=0.7, nbins=40
-    )
-    fig_hist.update_layout(height=450)
-    st.plotly_chart(fig_hist, use_container_width=True)
-
-    st.subheader("2D PCA Projection (colored by class)")
-    pca_viz = PCA(n_components=2, random_state=42)
-    proj = pca_viz.fit_transform(StandardScaler().fit_transform(df[FEATURE_COLS].fillna(df[FEATURE_COLS].median())))
-    proj_df = pd.DataFrame(proj, columns=["PC1", "PC2"])
-    proj_df["Label"] = df[TARGET_COL].map({0: "Legitimate", 1: "Spam"}).values
-    fig_pca = px.scatter(
-        proj_df, x="PC1", y="PC2", color="Label",
-        color_discrete_map={"Legitimate": "#4C72B0", "Spam": "#DD8452"},
-        opacity=0.6, title=f"PCA (explained variance: {pca_viz.explained_variance_ratio_.sum()*100:.1f}%)"
-    )
-    fig_pca.update_layout(height=450)
-    st.plotly_chart(fig_pca, use_container_width=True)
-
-# --------------------------------------------------------------------------------------
-# TAB: Models
-# --------------------------------------------------------------------------------------
-with tab_models:
-    st.subheader("Individual Model Performance")
-
-    m1, m2, m3 = st.tabs(["KNN", "SVM", "Naive Bayes"])
-
-    with m1:
-        st.markdown(f"**K = {knn_k}, metric = {knn_metric}**")
-        metrics = get_metrics(y_test, knn_pred)
-        cols = st.columns(4)
-        for col, (k, v) in zip(cols, metrics.items()):
-            col.metric(k, f"{v:.3f}")
-        st.plotly_chart(plot_confusion_plotly(y_test, knn_pred, "KNN Confusion Matrix", "Blues"),
-                         use_container_width=True)
-        with st.expander("Classification report"):
-            st.text(classification_report(y_test, knn_pred, target_names=['Legitimate', 'Spam']))
-
-    with m2:
-        st.markdown(f"**Kernel = {svm_kernel}, C = {svm_C}, gamma = {svm_gamma}**")
-        metrics = get_metrics(y_test, svm_pred)
-        cols = st.columns(4)
-        for col, (k, v) in zip(cols, metrics.items()):
-            col.metric(k, f"{v:.3f}")
-        st.write(f"Support vectors: **{svm.support_vectors_.shape[0]}** "
-                 f"({svm.support_vectors_.shape[0] / len(X_train_scaled) * 100:.1f}% of training data)")
-        st.plotly_chart(plot_confusion_plotly(y_test, svm_pred, "SVM Confusion Matrix", "Oranges"),
-                         use_container_width=True)
-        with st.expander("Classification report"):
-            st.text(classification_report(y_test, svm_pred, target_names=['Legitimate', 'Spam']))
-
-    with m3:
-        st.markdown("**Gaussian Naive Bayes (unscaled features)**")
-        metrics = get_metrics(y_test, nb_pred)
-        cols = st.columns(4)
-        for col, (k, v) in zip(cols, metrics.items()):
-            col.metric(k, f"{v:.3f}")
-        st.write(f"Class priors → P(Legitimate) = {nb.class_prior_[0]:.3f}, "
-                 f"P(Spam) = {nb.class_prior_[1]:.3f}")
-        st.plotly_chart(plot_confusion_plotly(y_test, nb_pred, "Naive Bayes Confusion Matrix", "Greens"),
-                         use_container_width=True)
-        with st.expander("Classification report"):
-            st.text(classification_report(y_test, nb_pred, target_names=['Legitimate', 'Spam']))
-
-    st.subheader("ROC Curve Comparison")
-    proba_dict = {
-        "KNN": knn.predict_proba(X_test_scaled)[:, 1],
-        "SVM": svm.predict_proba(X_test_scaled)[:, 1],
-        "Naive Bayes": nb.predict_proba(X_test)[:, 1],
-    }
-    st.plotly_chart(plot_roc_plotly(proba_dict, y_test), use_container_width=True)
-
-# --------------------------------------------------------------------------------------
-# TAB: Comparison
-# --------------------------------------------------------------------------------------
-with tab_compare:
-    st.subheader("Model Comparison")
-
+    # ---- Metrics table ----
     results = pd.DataFrame({
-        'Model': ['KNN', 'SVM', 'Naive Bayes'],
-        'Type': ['Distance-based', 'Margin-based', 'Probabilistic'],
-        **{k: [get_metrics(y_test, p)[k] for p in [knn_pred, svm_pred, nb_pred]]
-           for k in ['Accuracy', 'Precision', 'Recall', 'F1 Score']}
+        'Model': ['KNN (best K)', 'Linear SVM', 'RBF SVM', 'Naive Bayes'],
+        'Type': ['Distance-based', 'Margin-based', 'Margin-based', 'Probabilistic'],
+        'Accuracy': [accuracy_score(y_test, knn_pred), accuracy_score(y_test, pred_lin),
+                     accuracy_score(y_test, pred_rbf), accuracy_score(y_test, nb_pred)],
+        'Precision': [precision_score(y_test, knn_pred), precision_score(y_test, pred_lin),
+                      precision_score(y_test, pred_rbf), precision_score(y_test, nb_pred)],
+        'Recall': [recall_score(y_test, knn_pred), recall_score(y_test, pred_lin),
+                   recall_score(y_test, pred_rbf), recall_score(y_test, nb_pred)],
+        'F1 Score': [f1_score(y_test, knn_pred), f1_score(y_test, pred_lin),
+                     f1_score(y_test, pred_rbf), f1_score(y_test, nb_pred)]
     }).round(4)
 
-    st.dataframe(results, use_container_width=True)
+    predictions = {
+        'KNN (best K)': knn_pred,
+        'Linear SVM': pred_lin,
+        'RBF SVM': pred_rbf,
+        'Naive Bayes': nb_pred,
+    }
 
-    melted = results.melt(id_vars=['Model', 'Type'], value_vars=['Accuracy', 'Precision', 'Recall', 'F1 Score'],
-                           var_name='Metric', value_name='Score')
-    fig_cmp = px.bar(
-        melted, x='Model', y='Score', color='Metric', barmode='group',
-        text=melted['Score'].round(3), title="Accuracy / Precision / Recall / F1 by Model"
+    return {
+        'scaler': scaler,
+        'knn_final': knn_final,
+        'best_k': best_k,
+        'knn_scan': knn_df,
+        'svm_linear': svm_linear,
+        'svm_rbf': svm_rbf,
+        'nb': nb,
+        'X_train': X_train, 'X_test': X_test,
+        'y_train': y_train, 'y_test': y_test,
+        'X_train_scaled': X_train_scaled, 'X_test_scaled': X_test_scaled,
+        'results': results,
+        'predictions': predictions,
+    }
+
+
+def extract_features_from_text(text, sender_activity_score, sender_account_age_days,
+                                messages_sent_last_24h, hour_of_day, day_of_week):
+    """Roughly mimic the dataset's text-derived features for a typed message."""
+    spam_words = ['free', 'win', 'winner', 'cash', 'prize', 'urgent', 'click',
+                  'offer', 'limited', 'act now', 'congratulations', 'claim',
+                  'discount', 'guarantee', 'risk-free', 'verify']
+    legit_words = ['meeting', 'report', 'invoice', 'project', 'schedule',
+                   'thanks', 'please', 'confirm', 'attached', 'regards']
+
+    text_lower = text.lower()
+    message_length = len(text)
+    word_count = len(text.split())
+    num_urls = len(re.findall(r'https?://\S+|www\.\S+', text_lower))
+    num_digits = sum(c.isdigit() for c in text)
+    num_special_chars = len(re.findall(r'[^a-zA-Z0-9\s]', text))
+    spam_keyword_score = sum(text_lower.count(w) for w in spam_words)
+    legit_keyword_score = sum(text_lower.count(w) for w in legit_words)
+
+    return {
+        'message_length': message_length,
+        'word_count': word_count,
+        'num_urls': num_urls,
+        'num_digits': num_digits,
+        'num_special_chars': num_special_chars,
+        'spam_keyword_score': spam_keyword_score,
+        'legit_keyword_score': legit_keyword_score,
+        'sender_activity_score': sender_activity_score,
+        'sender_account_age_days': sender_account_age_days,
+        'messages_sent_last_24h': messages_sent_last_24h,
+        'hour_of_day': hour_of_day,
+        'day_of_week': day_of_week,
+    }
+
+
+def plot_confusion(y_test, y_pred, title, cmap):
+    cm = confusion_matrix(y_test, y_pred)
+    fig, ax = plt.subplots(figsize=(4, 3.3))
+    sns.heatmap(cm, annot=True, fmt='d', cmap=cmap, ax=ax,
+                xticklabels=['Legit', 'Spam'], yticklabels=['Legit', 'Spam'])
+    ax.set_title(title)
+    ax.set_ylabel('Actual')
+    ax.set_xlabel('Predicted')
+    fig.tight_layout()
+    return fig
+
+
+# ----------------------------------------------------------------------
+# App layout
+# ----------------------------------------------------------------------
+st.title("📨 Message Intelligence System")
+st.caption("Spam vs Legitimate message classification — KNN · SVM · Naive Bayes")
+
+try:
+    df = load_data()
+except FileNotFoundError:
+    st.error(
+        f"Could not find `{DATA_PATH}`. Place the dataset CSV in the same "
+        "folder as app.py before running."
     )
-    fig_cmp.update_layout(yaxis_range=[0, 1.05], height=480)
-    st.plotly_chart(fig_cmp, use_container_width=True)
+    st.stop()
+
+models = train_models(df)
+results = models['results']
+
+tab_overview, tab_predict, tab_models, tab_compare, tab_data = st.tabs(
+    ["🏠 Overview", "🔮 Try a Message", "🧩 Model Details", "📊 Comparison", "📁 Dataset"]
+)
+
+# ---------------- Overview ----------------
+with tab_overview:
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Messages", len(df))
+    c2.metric("Spam %", f"{df['spam_label'].mean()*100:.1f}%")
+    c3.metric("Best K (KNN)", models['best_k'])
+    c4.metric("Best Model (F1)", results.loc[results['F1 Score'].idxmax(), 'Model'])
+
+    st.subheader("Model Performance Summary")
+    st.dataframe(results.set_index('Model'), use_container_width=True)
+
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    results.set_index('Model')[['Accuracy', 'Precision', 'Recall', 'F1 Score']].plot(
+        kind='bar', ax=ax, colormap='Set2'
+    )
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel('Score')
+    ax.set_title('Model Comparison: KNN vs SVM (Linear/RBF) vs Naive Bayes')
+    plt.xticks(rotation=0)
+    fig.tight_layout()
+    st.pyplot(fig)
 
     best_precision = results.loc[results['Precision'].idxmax()]
     best_recall = results.loc[results['Recall'].idxmax()]
-    best_f1 = results.loc[results['F1 Score'].idxmax()]
+    colA, colB = st.columns(2)
+    with colA:
+        st.info(
+            f"**Best for High Precision:** {best_precision['Model']} "
+            f"({best_precision['Precision']:.3f})\n\n"
+            "Use when false positives (flagging a real message as spam) are costly."
+        )
+    with colB:
+        st.warning(
+            f"**Best for High Recall:** {best_recall['Model']} "
+            f"({best_recall['Recall']:.3f})\n\n"
+            "Use when false negatives (letting spam through) are costly."
+        )
+
+# ---------------- Try a Message ----------------
+with tab_predict:
+    st.subheader("Classify a New Message")
+    st.write("Enter a message and some sender context — all three models will vote.")
+
+    msg_text = st.text_area(
+        "Message text",
+        "Congratulations! You have WON a free prize. Click here to claim now!!!",
+        height=100
+    )
 
     c1, c2, c3 = st.columns(3)
-    c1.info(f"**Best Precision:** {best_precision['Model']} ({best_precision['Precision']:.3f})\n\n"
-            "Use when false positives (blocking real messages) are costly.")
-    c2.info(f"**Best Recall:** {best_recall['Model']} ({best_recall['Recall']:.3f})\n\n"
-            "Use when missing actual spam (security risk) is costly.")
-    c3.success(f"**Best F1 (balanced):** {best_f1['Model']} ({best_f1['F1 Score']:.3f})")
+    with c1:
+        sender_activity_score = st.slider("Sender activity score", 0.0, 100.0, 25.0)
+        sender_account_age_days = st.slider("Sender account age (days)", 0, 1000, 300)
+    with c2:
+        messages_sent_last_24h = st.slider("Messages sent last 24h", 0, 50, 5)
+        hour_of_day = st.slider("Hour of day", 0, 23, 14)
+    with c3:
+        day_of_week = st.slider("Day of week (0=Mon)", 0, 6, 2)
+        model_choice = st.selectbox(
+            "Model to highlight",
+            ["All Models", "KNN", "Linear SVM", "RBF SVM", "Naive Bayes"]
+        )
 
-# --------------------------------------------------------------------------------------
-# TAB: Try a Message (live prediction)
-# --------------------------------------------------------------------------------------
-with tab_predict:
-    st.subheader("Classify a Custom Message")
-    st.caption("Enter feature values manually, or pick a random message from the test set to auto-fill.")
+    if st.button("🔍 Classify Message", type="primary"):
+        feats = extract_features_from_text(
+            msg_text, sender_activity_score, sender_account_age_days,
+            messages_sent_last_24h, hour_of_day, day_of_week
+        )
+        x_row = pd.DataFrame([feats])[FEATURE_COLS]
+        x_scaled = models['scaler'].transform(x_row)
 
-    if st.button("🎲 Load random test message"):
-        sample = X_test.sample(1, random_state=np.random.randint(0, 10000))
-        st.session_state["sample_idx"] = sample.index[0]
+        knn_p = models['knn_final'].predict(x_scaled)[0]
+        knn_proba = models['knn_final'].predict_proba(x_scaled)[0]
+        lin_p = models['svm_linear'].predict(x_scaled)[0]
+        lin_proba = models['svm_linear'].predict_proba(x_scaled)[0]
+        rbf_p = models['svm_rbf'].predict(x_scaled)[0]
+        rbf_proba = models['svm_rbf'].predict_proba(x_scaled)[0]
+        nb_p = models['nb'].predict(x_row)[0]
+        nb_proba = models['nb'].predict_proba(x_row)[0]
 
-    sample_idx = st.session_state.get("sample_idx", X_test.index[0])
-    sample_row = X_test.loc[sample_idx]
-    actual_label = y_test.loc[sample_idx]
+        label = lambda v: "🚨 SPAM" if v == 1 else "✅ Legitimate"
 
-    if 'message_text' in df.columns:
-        st.text_area("Sample message text", df.loc[sample_idx, 'message_text'], height=70, disabled=True)
-        st.write(f"Actual label: **{'Spam' if actual_label == 1 else 'Legitimate'}**")
+        result_table = pd.DataFrame({
+            'Model': ['KNN', 'Linear SVM', 'RBF SVM', 'Naive Bayes'],
+            'Prediction': [label(knn_p), label(lin_p), label(rbf_p), label(nb_p)],
+            'P(Spam)': [knn_proba[1], lin_proba[1], rbf_proba[1], nb_proba[1]],
+        }).round(4)
 
-    cols = st.columns(3)
-    input_vals = {}
-    for i, feat in enumerate(FEATURE_COLS):
-        with cols[i % 3]:
-            input_vals[feat] = st.number_input(
-                feat, value=float(sample_row[feat]), key=f"inp_{feat}"
-            )
+        st.dataframe(result_table.set_index('Model'), use_container_width=True)
 
-    if st.button("🔎 Classify Message", type="primary"):
-        x_input = pd.DataFrame([input_vals])[FEATURE_COLS]
-        x_input_scaled = scaler.transform(x_input)
+        votes = [knn_p, lin_p, rbf_p, nb_p]
+        majority = "🚨 SPAM" if sum(votes) >= 2 else "✅ Legitimate"
+        st.markdown(f"### Majority Vote: {majority}")
 
-        knn_p = knn.predict(x_input_scaled)[0]
-        svm_p = svm.predict(x_input_scaled)[0]
-        nb_p = nb.predict(x_input)[0]
-        nb_proba = nb.predict_proba(x_input)[0]
+        with st.expander("Extracted features used for prediction"):
+            st.json(feats)
 
-        r1, r2, r3 = st.columns(3)
-        for col, name, pred in zip([r1, r2, r3], ["KNN", "SVM", "Naive Bayes"], [knn_p, svm_p, nb_p]):
-            label = "🚫 Spam" if pred == 1 else "✅ Legitimate"
-            col.metric(name, label)
+# ---------------- Model Details ----------------
+with tab_models:
+    st.subheader("KNN — K selection")
+    knn_scan = models['knn_scan']
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(knn_scan['K'], knn_scan['Accuracy'], marker='o', label='Accuracy')
+    ax.plot(knn_scan['K'], knn_scan['F1'], marker='s', label='F1 Score')
+    ax.set_xlabel('K (number of neighbors)')
+    ax.set_ylabel('Score')
+    ax.set_title('KNN Performance vs K')
+    ax.legend()
+    fig.tight_layout()
+    st.pyplot(fig)
+    st.caption(f"Best K selected by F1 score: **{models['best_k']}**")
+    st.dataframe(knn_scan.round(4), use_container_width=True, hide_index=True)
 
-        st.write(f"**Naive Bayes posterior probabilities:** "
-                 f"P(Legitimate) = {nb_proba[0]:.4f}, P(Spam) = {nb_proba[1]:.4f}")
+    st.divider()
+    st.subheader("SVM — Support Vectors & Margin")
+    svm_lin = models['svm_linear']
+    svm_rbf = models['svm_rbf']
+    n_train = models['X_train_scaled'].shape[0]
+    w = svm_lin.coef_[0]
+    margin_width = 2 / np.linalg.norm(w)
 
-st.markdown("---")
-st.caption("Message Intelligence System · Built with Streamlit, scikit-learn, pandas & seaborn")
+    c1, c2 = st.columns(2)
+    c1.metric("Linear SVM support vectors",
+              svm_lin.support_vectors_.shape[0],
+              f"{svm_lin.support_vectors_.shape[0]/n_train*100:.1f}% of training data")
+    c2.metric("RBF SVM support vectors",
+              svm_rbf.support_vectors_.shape[0],
+              f"{svm_rbf.support_vectors_.shape[0]/n_train*100:.1f}% of training data")
+    st.write(f"**Linear SVM margin width (2/‖w‖):** {margin_width:.4f}")
+    st.caption(
+        "Fewer support vectors with a wide margin suggests well-separated classes. "
+        "RBF typically uses more support vectors since it fits a more flexible, "
+        "non-linear boundary."
+    )
+
+    if st.checkbox("Show 2D PCA decision boundary (Linear SVM)"):
+        pca = PCA(n_components=2, random_state=42)
+        X_train_2d = pca.fit_transform(models['X_train_scaled'])
+        svm_2d = SVC(kernel='linear', C=1.0).fit(X_train_2d, models['y_train'])
+
+        xx, yy = np.meshgrid(
+            np.linspace(X_train_2d[:, 0].min() - 1, X_train_2d[:, 0].max() + 1, 300),
+            np.linspace(X_train_2d[:, 1].min() - 1, X_train_2d[:, 1].max() + 1, 300)
+        )
+        Z = svm_2d.decision_function(np.c_[xx.ravel(), yy.ravel()]).reshape(xx.shape)
+
+        fig, ax = plt.subplots(figsize=(7, 5.5))
+        ax.contourf(xx, yy, Z, levels=[-100, 0, 100], colors=['#cfe2f3', '#f9cb9c'], alpha=0.5)
+        ax.contour(xx, yy, Z, colors='k', levels=[-1, 0, 1], linestyles=['--', '-', '--'])
+        ax.scatter(X_train_2d[:, 0], X_train_2d[:, 1], c=models['y_train'],
+                   cmap='coolwarm', s=15, edgecolors='k', linewidths=0.3)
+        ax.scatter(svm_2d.support_vectors_[:, 0], svm_2d.support_vectors_[:, 1],
+                   s=80, facecolors='none', edgecolors='lime', linewidths=1.5,
+                   label='Support Vectors')
+        ax.set_title('Linear SVM Decision Boundary & Margin (PCA-projected, 2D)')
+        ax.set_xlabel('PC1'); ax.set_ylabel('PC2'); ax.legend()
+        fig.tight_layout()
+        st.pyplot(fig)
+
+    st.divider()
+    st.subheader("Naive Bayes — Bayes' Theorem Walkthrough")
+    nb = models['nb']
+    st.write(
+        f"Class priors learned: **P(Legitimate) = {nb.class_prior_[0]:.4f}**, "
+        f"**P(Spam) = {nb.class_prior_[1]:.4f}**"
+    )
+    st.latex(r"P(C \mid X) = \frac{P(X \mid C)\,P(C)}{P(X)} \;\propto\; "
+             r"P(C)\prod_{i=1}^{n} P(x_i \mid C)")
+
+    sample_idx = models['X_test'].index[:3]
+    samples = models['X_test'].loc[sample_idx]
+    sklearn_proba = nb.predict_proba(samples)
+    actual = models['y_test'].loc[sample_idx]
+    compare_table = pd.DataFrame({
+        'message_id': sample_idx,
+        'message_text': df.loc[sample_idx, 'message_text'].str.slice(0, 60) + "...",
+        'actual': ['Spam' if v == 1 else 'Legitimate' for v in actual.values],
+        'P(Legit)': sklearn_proba[:, 0].round(6),
+        'P(Spam)': sklearn_proba[:, 1].round(6),
+    })
+    st.dataframe(compare_table.set_index('message_id'), use_container_width=True)
+    st.caption(
+        "Manually computing the Gaussian likelihoods per feature, multiplying by the "
+        "class prior, and normalizing reproduces these same posterior probabilities "
+        "(see notebook for the hand-derived calculation)."
+    )
+
+# ---------------- Comparison ----------------
+with tab_compare:
+    st.subheader("Confusion Matrices")
+    y_test = models['y_test']
+    preds = models['predictions']
+    cols = st.columns(4)
+    cmaps = ['Blues', 'Purples', 'Oranges', 'Greens']
+    for col, (name, pred), cmap in zip(cols, preds.items(), cmaps):
+        with col:
+            fig = plot_confusion(y_test, pred, name, cmap)
+            st.pyplot(fig)
+
+    st.divider()
+    st.subheader("Classification Reports")
+    chosen = st.selectbox("Choose a model", list(preds.keys()))
+    report = classification_report(
+        y_test, preds[chosen], target_names=['Legitimate', 'Spam'], output_dict=True
+    )
+    st.dataframe(pd.DataFrame(report).T.round(4), use_container_width=True)
+
+    st.divider()
+    st.subheader("Final Recommendation")
+    st.markdown(
+        """
+- **Naive Bayes** is fast, interpretable, and gives calibrated probabilities — good baseline.
+- **KNN** is simple and non-parametric but slows down on large data and is sensitive to scaling.
+- **SVM (Linear/RBF)** often gives the best margin-based separation; RBF captures non-linear
+  patterns at the cost of interpretability and more support vectors.
+- For a production spam filter, prioritize **recall** to catch as much spam as possible,
+  but monitor **precision** so legitimate messages aren't lost — an ensemble/voting
+  approach (as shown in the *Try a Message* tab) balances both.
+        """
+    )
+
+# ---------------- Dataset ----------------
+with tab_data:
+    st.subheader("Raw Dataset")
+    st.dataframe(df, use_container_width=True)
+
+    st.subheader("Feature Correlation with Spam Label")
+    corr = df[FEATURE_COLS + ['spam_label']].corr()
+    fig, ax = plt.subplots(figsize=(10, 7))
+    sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", center=0, ax=ax)
+    fig.tight_layout()
+    st.pyplot(fig)
+
+    st.subheader("Class Distribution")
+    c1, c2 = st.columns(2)
+    with c1:
+        fig, ax = plt.subplots(figsize=(5, 4))
+        df['spam_label'].value_counts().plot(kind='bar', ax=ax, color=['#4C72B0', '#DD8452'])
+        ax.set_xticklabels(['Legitimate (0)', 'Spam (1)'], rotation=0)
+        ax.set_title('Class Distribution (counts)')
+        fig.tight_layout()
+        st.pyplot(fig)
+    with c2:
+        fig, ax = plt.subplots(figsize=(5, 4))
+        df['spam_label'].value_counts().plot(
+            kind='pie', autopct='%1.1f%%', ax=ax,
+            labels=['Legitimate', 'Spam'], colors=['#4C72B0', '#DD8452']
+        )
+        ax.set_ylabel('')
+        ax.set_title('Class Distribution (%)')
+        fig.tight_layout()
+        st.pyplot(fig)
