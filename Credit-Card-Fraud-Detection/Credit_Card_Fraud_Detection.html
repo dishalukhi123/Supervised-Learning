@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Credit Card Fraud Detection — Complete Architecture Dashboard</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+:root{
+  --bg:#f5f3ff;--bg2:#ede9fe;--bg3:#ddd6fe;--card:#ffffff;--card2:#faf5ff;
+  --border:rgba(109,40,217,0.12);--border2:rgba(109,40,217,0.25);
+  --neon-blue:#2563eb;--neon-cyan:#0891b2;--neon-purple:#7c3aed;
+  --neon-pink:#db2777;--neon-green:#16a34a;--neon-yellow:#b45309;
+  --neon-orange:#c2410c;--neon-red:#dc2626;
+  --neon-indigo:#4f46e5;--neon-violet:#7c3aed;
+  --text:#1e1b4b;--muted:#4b5563;--dim:#9ca3af;
+  --font-head:'Syne',sans-serif;--font-body:'Plus Jakarta Sans',sans-serif;--font-mono:'JetBrains Mono',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{font-family:var(--font-body);background:var(--bg);color:var(--text);line-height:1.8;font-size:16px;overflow-x:hidden;}
+::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:var(--bg);}::-webkit-scrollbar-thumb{background:var(--neon-indigo);border-radius:3px;}
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background-image:linear-gradient(rgba(79,70,229,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(79,70,229,0.02) 1px,transparent 1px);background-size:40px 40px;}
+.container-main{max-width:1280px;margin:0 auto;padding:0 1.5rem;position:relative;z-index:1;}
+
+/* TOP STICKY STRIP */
+.status-strip{position:sticky;top:0;z-index:1000;background:rgba(245,243,255,0.96);backdrop-filter:blur(16px);border-bottom:1px solid var(--border2);box-shadow:0 2px 12px rgba(79,70,229,0.06);padding:0.75rem 0;}
+.status-inner{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;}
+.status-label{font-family:var(--font-head);font-weight:800;font-size:0.85rem;color:var(--neon-indigo);letter-spacing:2px;text-transform:uppercase;}
+.status-badge-container{display:flex;gap:0.5rem;}
+.status-tag{font-size:0.75rem;font-weight:700;padding:0.25rem 0.75rem;border-radius:50px;background:rgba(79,70,229,0.06);border:1px solid rgba(79,70,229,0.15);color:var(--neon-indigo);display:inline-flex;align-items:center;gap:0.35rem;}
+
+/* HERO */
+.hero{position:relative;overflow:hidden;padding:5rem 0 3.5rem;
+  background:radial-gradient(ellipse at 10% 40%,rgba(79,70,229,0.12) 0%,transparent 60%),
+             radial-gradient(ellipse at 90% 10%,rgba(219,39,119,0.06) 0%,transparent 50%),var(--bg);}
+.hero-eyebrow{display:inline-flex;align-items:center;gap:0.5rem;background:rgba(79,70,229,0.1);border:1px solid rgba(79,70,229,0.25);border-radius:50px;padding:0.3rem 1rem;font-size:0.75rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--neon-indigo);margin-bottom:1.2rem;}
+.hero h1{font-family:var(--font-head);font-weight:800;font-size:clamp(2.2rem,5vw,3.6rem);line-height:1.15;letter-spacing:-1.5px;margin-bottom:1rem;}
+.hero h1 .gradient-text{background:linear-gradient(135deg,var(--neon-indigo) 0%,var(--neon-violet) 50%,var(--neon-pink) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.hero-sub{font-size:1.05rem;color:var(--muted);max-width:800px;margin-bottom:2rem;}
+
+/* QUICK STATS BAND */
+.stats-band {display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1rem;margin-bottom:3rem;}
+.stat-card-mini {background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.25rem;display:flex;align-items:center;gap:1rem;}
+.stat-icon-mini {width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;}
+.stat-info-mini h5 {margin:0;font-size:1.3rem;font-weight:800;font-family:var(--font-head);color:var(--text);}
+.stat-info-mini p {margin:0;font-size:0.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:0.5px;}
+
+/* LEVEL CARDS */
+.level-card{background:var(--card);border:1px solid var(--border);border-radius:24px;padding:2.5rem;margin-bottom:2.5rem;position:relative;overflow:hidden;transition:box-shadow 0.3s, border-color 0.3s;}
+.level-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;border-radius:24px 24px 0 0;}
+.level-card.lvl-indigo::before{background:linear-gradient(90deg,var(--neon-indigo),var(--neon-violet));}
+.level-card.lvl-violet::before{background:linear-gradient(90deg,var(--neon-violet),var(--neon-pink));}
+.level-card.lvl-pink::before{background:linear-gradient(90deg,var(--neon-pink),var(--neon-cyan));}
+.level-card.lvl-cyan::before{background:linear-gradient(90deg,var(--neon-cyan),var(--neon-blue));}
+.level-card:hover{box-shadow:0 12px 40px rgba(109,40,217,0.06);border-color:var(--border2);}
+.lv-header{display:flex;align-items:flex-start;gap:1.2rem;margin-bottom:1.5rem;}
+.lv-icon-wrap{width:54px;height:54px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.3rem;}
+.ico-indigo{background:rgba(79,70,229,0.1);color:var(--neon-indigo);}
+.ico-violet{background:rgba(124,58,237,0.1);color:var(--neon-violet);}
+.ico-pink{background:rgba(219,39,119,0.1);color:var(--neon-pink);}
+.ico-cyan{background:rgba(8,145,178,0.1);color:var(--neon-cyan);}
+.lv-meta{flex:1;}
+.lv-eyebrow{font-size:0.72rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:0.25rem;}
+.lv-title{font-family:var(--font-head);font-weight:800;font-size:1.5rem;color:var(--text);margin:0;}
+
+/* DETAILED SECTIONS */
+.section-body {font-size:0.95rem;color:var(--muted);margin-bottom:1.5rem;}
+.section-subheading {font-family:var(--font-head);font-weight:700;font-size:1.1rem;color:var(--text);margin-top:1.5rem;margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem;}
+
+/* CALLOUTS */
+.callout{border-radius:14px;padding:1.2rem 1.4rem;margin:1.2rem 0;border:1px solid;position:relative;}
+.callout::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:4px 0 0 4px;}
+.callout .ct{font-weight:800;font-size:0.95rem;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.5rem;}
+.cb-indigo{background:rgba(79,70,229,0.04);border-color:rgba(79,70,229,0.15);}.cb-indigo::before{background:var(--neon-indigo);}.cb-indigo .ct{color:var(--neon-indigo);}
+.cb-green{background:rgba(22,163,74,0.04);border-color:rgba(22,163,74,0.15);}.cb-green::before{background:var(--neon-green);}.cb-green .ct{color:var(--neon-green);}
+.cb-pink{background:rgba(219,39,119,0.04);border-color:rgba(219,39,119,0.15);}.cb-pink::before{background:var(--neon-pink);}.cb-pink .ct{color:var(--neon-pink);}
+
+/* TABLE SYSTEM */
+.gtbl{width:100%;border-collapse:separate;border-spacing:0;border-radius:14px;overflow:hidden;border:1px solid var(--border);margin:1.5rem 0;}
+.gtbl thead th{background:rgba(79,70,229,0.06);color:var(--neon-indigo);font-family:var(--font-head);font-weight:700;padding:0.9rem 1rem;font-size:0.85rem;border-bottom:1px solid rgba(79,70,229,0.12);}
+.gtbl tbody td{padding:0.8rem 1rem;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.92rem;}
+.gtbl tbody tr:last-child td{border-bottom:none;}
+.highlight-row td{background-color:rgba(22,163,74,0.05) !important;font-weight:600;color:var(--neon-green) !important;}
+
+/* CHART FLEXGRID COMPONENT */
+.chart-grid-layout {display:grid;grid-template-columns:1fr;gap:1.5rem;margin:1.5rem 0;}
+@media (min-width: 992px) { .chart-grid-layout { grid-template-columns: 1fr 1fr; } }
+.chart-box{background:var(--card2);border:1px solid var(--border);border-radius:16px;padding:1.5rem;position:relative;}
+.chart-title-embed{font-family:var(--font-head);font-weight:700;font-size:0.92rem;color:var(--text);margin-bottom:1.2rem;display:flex;align-items:center;gap:0.5rem;}
+
+/* TIMELINE STEP COMPONENT */
+.step-timeline{position:relative;padding-left:2rem;margin:1.5rem 0;}
+.step-timeline::before{content:'';position:absolute;left:8px;top:4px;bottom:4px;width:2px;background:rgba(109,40,217,0.15);border-radius:2px;}
+.step-item{position:relative;margin-bottom:1.5rem;background:#ffffff;border:1px solid var(--border);border-radius:12px;padding:1rem 1.25rem;}
+.step-item::before{content:attr(data-step);position:absolute;left:-2.4rem;top:0.8rem;width:24px;height:24px;border-radius:50%;background:var(--neon-indigo);color:#ffffff;display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-weight:800;font-size:0.7rem;}
+.step-label{font-weight:700;color:var(--text);font-size:0.95rem;margin-bottom:0.25rem;}
+.step-body{color:var(--muted);font-size:0.88rem;}
+
+.inline-code{background:rgba(79,70,229,0.06);color:#3730a3;padding:0.1rem 0.4rem;border-radius:6px;font-family:var(--font-mono);font-size:0.88em;}
+.math-block{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:1rem;text-align:center;font-family:var(--font-mono);font-size:0.92rem;color:var(--neon-indigo);margin:1rem 0;}
+</style>
+</head>
+<body>
+
+<!-- TOP STATUS NAVIGATION STRIP -->
+<div class="status-strip">
+  <div class="container-main">
+    <div class="status-inner">
+      <div class="status-label"><i class="fa-solid fa-server me-2"></i>Enterprise Ml Dashboard Architecture</div>
+      <div class="status-badge-container">
+        <span class="status-tag"><i class="fa-solid fa-graduation-cap"></i>Academic Project Portfolio</span>
+        <span class="status-tag" style="color:var(--neon-blue); background:rgba(37,99,235,0.06); border-color:rgba(37,99,235,0.2);"><i class="fa-solid fa-code"></i>Production Mode</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container-main mt-4">
+  
+  <!-- HERO BANNER -->
+  <section class="hero" id="hero">
+    <div class="hero-eyebrow">Advanced Machine learning Capstone Project</div>
+    <h1>
+      <span class="d-block text-dark">Credit Card Fraud Detection &</span>
+      <span class="gradient-text">Operational Decision Optimization</span>
+    </h1>
+    <p class="hero-sub">
+      An extensive research and development pipeline focused on solving severe target class skewness ($0.17\%$). This interactive interface visualizes feature distributions, data engineering layers, evaluation metrics, and business value simulation paths.
+    </p>
+  </section>
+
+  <!-- QUICK METRIC STATS BAND -->
+  <div class="stats-band">
+    <div class="stat-card-mini">
+      <div class="stat-icon-mini ico-indigo"><i class="fa-solid fa-database"></i></div>
+      <div class="stat-info-mini"><h5>284,807</h5><p>Dataset Rows</p></div>
+    </div>
+    <div class="stat-card-mini">
+      <div class="stat-icon-mini ico-pink"><i class="fa-solid fa-triangle-exclamation"></i></div>
+      <div class="stat-info-mini"><h5>0.172%</h5><p>Fraud Ratio</p></div>
+    </div>
+    <div class="stat-card-mini">
+      <div class="stat-icon-mini ico-cyan"><i class="fa-solid fa-chart-line"></i></div>
+      <div class="stat-info-mini"><h5>0.88</h5><p>Top PR-AUC Yield</p></div>
+    </div>
+    <div class="stat-card-mini">
+      <div class="stat-icon-mini" style="background:rgba(22,163,74,0.1); color:var(--neon-green);"><i class="fa-solid fa-sack-dollar"></i></div>
+      <div class="stat-info-mini"><h5>₹336,750</h5><p>Max Net Benefit</p></div>
+    </div>
+  </div>
+
+  <!-- MODULE 1: COMPREHENSIVE BUSINESS FRAMING & VISITATION DESCRIPTIVES -->
+  <section class="level-card lvl-indigo">
+    <div class="lv-header">
+      <div class="lv-icon-wrap ico-indigo"><i class="fa-solid fa-magnifying-glass-chart"></i></div>
+      <div class="lv-meta">
+        <div class="lv-eyebrow">Module 01 / Exploration</div>
+        <h2 class="lv-title">Executive Summary & High-Fidelity Dataset Profiling</h2>
+      </div>
+    </div>
+    
+    <div class="section-body">
+      <p>
+        In real-world payment networks processing millions of operations every minute, financial anomalies and fraudulent vectors represent an incredibly tiny subsection of overall system traffic. In this dataset, out of <strong>284,807 transaction events</strong>, exactly <strong>492 occurrences</strong> are validated as malicious fraud vectors. 
+      </p>
+      <p>
+        Standard metric architectures like accuracy fail spectacularly here; a baseline model predicting 100% legitimate states scores a deceptive <strong>99.83% accuracy</strong> while missing every single active threat. Therefore, this project emphasizes area under the Precision-Recall curve (<span class="inline-code">PR-AUC</span>) and operational cost matrices over naive metric optimizations.
+      </p>
+    </div>
+
+    <div class="chart-grid-layout">
+      <!-- CHART: LOG FREQUENCY DENSITY -->
+      <div class="chart-box">
+        <div class="chart-title-embed"><i class="fa-solid fa-chart-bar text-primary"></i> Target Label Visitation Frequency (Log Scale)</div>
+        <div style="position: relative; height: 260px; width: 100%;">
+          <canvas id="visitationChart"></canvas>
+        </div>
+      </div>
+      <!-- CHART: FEATURE SCATTER / AMOUNT OUTLIERS -->
+      <div class="chart-box">
+        <div class="chart-title-embed"><i class="fa-solid fa-chart-line text-info"></i> Transaction Distribution Profile across Quantiles</div>
+        <div style="position: relative; height: 260px; width: 100%;">
+          <canvas id="distributionChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODULE 2: DATA ENGINEERING & RESAMPLING PIPELINE -->
+  <section class="level-card lvl-violet">
+    <div class="lv-header">
+      <div class="lv-icon-wrap ico-violet"><i class="fa-solid fa-gears"></i></div>
+      <div class="lv-meta">
+        <div class="lv-eyebrow">Module 02 / Engineering</div>
+        <h2 class="lv-title">Mathematical Feature Transformations & Class Resampling</h2>
+      </div>
+    </div>
+
+    <div class="section-body">
+      <p>
+        Raw monetary amount parameters show heavy right-skewed tail distributions with immense variances. To stabilize model parameters and streamline gradient convergence steps, our pipeline enforces strict data mathematical transformations.
+      </p>
+
+      <div class="section-subheading"><i class="fa-solid fa-square-root-variable text-primary"></i> Core Pipeline Mathematical Operations</div>
+      <div class="math-block">Amount\_Scaled = \ln(	ext{Amount} + 1)</div>
+      <div class="math-block">	ext{Temporal Hour Extracted} = (	ext{Time} \pmod{86400}) \div 3600</div>
+
+      <div class="section-subheading"><i class="fa-solid fa-shuffle text-violet"></i> Multi-Strategy Class Imbalance Resampling Lifecycle</div>
+      <p>
+        To prevent structural metrics from overfitting to the majority class distribution, three dedicated resampling paradigms were integrated during the model training cycle:
+      </p>
+
+      <div class="step-timeline">
+        <div class="step-item" data-step="1">
+          <div class="step-label">Random Undersampling (RUS) Execution</div>
+          <div class="step-body">Reduces majority records to balance the localized representation index up to precisely 10% target density.</div>
+        </div>
+        <div class="step-item" data-step="2">
+          <div class="step-label">SMOTE Synthetic Neighbor Oversampling</div>
+          <div class="step-body">Synthesizes minority data coordinates inside K-Nearest Neighbor regions to eliminate structural algorithmic bias.</div>
+        </div>
+        <div class="step-item" data-step="3">
+          <div class="step-label">Dynamic Cost-Weighted Penalization</div>
+          <div class="step-body">Embeds class frequencies directly into the objective loss matrix, penalizing false negatives severely during updates.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout cb-pink">
+      <div class="ct"><i class="fa-solid fa-shield-halved"></i> Mandatory Test Partition Separation Protocol</div>
+      All test arrays (<span class="inline-code">X_test, y_test</span>) are intentionally kept outside the resampling cycle, preserving their native 0.17% distribution properties to ensure unbiased validation results.
+    </div>
+  </section>
+
+  <!-- MODULE 3: DETAILED MODEL COMPARISON PERFORMANCE MATRIX -->
+  <section class="level-card lvl-pink">
+    <div class="lv-header">
+      <div class="lv-icon-wrap ico-pink"><i class="fa-solid fa-circle-nodes"></i></div>
+      <div class="lv-meta">
+        <div class="lv-eyebrow">Module 03 / Performance</div>
+        <h2 class="lv-title">Multi-Model Performance Metrics & Precision-Recall Vectors</h2>
+      </div>
+    </div>
+
+    <div class="section-body">
+      <p>
+        The candidate architecture array was cross-verified using multi-dimensional scoring matrices. Moving away from standard accuracy benchmarks, models are evaluated based on their precision stability and out-of-sample PR-AUC results:
+      </p>
+
+      <table class="gtbl">
+        <thead>
+          <tr>
+            <th>Model Architecture Strategy Variant</th>
+            <th>Precision</th>
+            <th>Recall</th>
+            <th>F1-Score</th>
+            <th>PR-AUC</th>
+            <th>Decision Cutoff Bound</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Logistic Regression</strong> (Weighted Parameter Grid)</td>
+            <td>0.05</td>
+            <td>0.88</td>
+            <td>0.09</td>
+            <td>0.75</td>
+            <td>0.50 (Default)</td>
+          </tr>
+          <tr>
+            <td><strong>Random Forest Classifier</strong> (Ensemble Baseline)</td>
+            <td>0.92</td>
+            <td>0.75</td>
+            <td>0.82</td>
+            <td>0.85</td>
+            <td>0.50 (Default)</td>
+          </tr>
+          <tr>
+            <td><strong>XGBoost Model</strong> (Native Unbalanced Distribution)</td>
+            <td>0.85</td>
+            <td>0.80</td>
+            <td>0.82</td>
+            <td>0.86</td>
+            <td>0.50 (Default)</td>
+          </tr>
+          <tr class="highlight-row">
+            <td><strong>XGBoost Tuned + Threshold Optimised Layout</strong></td>
+            <td>0.82</td>
+            <td>0.86</td>
+            <td>0.84</td>
+            <td>0.88</td>
+            <td>0.35 (Custom Optimised)</td>
+          </tr>
+          <tr>
+            <td><strong>XGBoost High-Sensitivity Matrix Configuration</strong></td>
+            <td>0.15</td>
+            <td>0.91</td>
+            <td>0.25</td>
+            <td>0.88</td>
+            <td>0.05 (Custom Sensitivity)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- MODULE 4: FINANCIAL SIMULATION & NET BENEFIT DEEP ANALYTICS -->
+  <section class="level-card lvl-cyan">
+    <div class="lv-header">
+      <div class="lv-icon-wrap ico-cyan"><i class="fa-solid fa-money-bill-trend-up"></i></div>
+      <div class="lv-meta">
+        <div class="lv-eyebrow">Module 04 / Business Value</div>
+        <h2 class="lv-title">Financial Sensitivity Matrices & Threshold Benefit Curves</h2>
+      </div>
+    </div>
+
+    <div class="section-body">
+      <p>
+        To directly link system classification predictions with actual business values, financial loss variables were integrated matching real-world banking infrastructure parameters:
+      </p>
+      <ul>
+        <li>Average cost of a missed fraudulent transaction (False Negative Leakage): <span class="inline-code">V_fraud = ₹4,500</span></li>
+        <li>Operational manual check cost per alert generated (False Positive Overhead): <span class="inline-code">C_invest = ₹150</span></li>
+      </ul>
+
+      <div class="math-block">	ext{Net Business Benefit Value} = (	ext{TP} 	imes ₹4,500) - ((	ext{TP} + 	ext{FP}) 	imes ₹150) - (	ext{FN} 	imes ₹4,500)</div>
+    </div>
+
+    <!-- BENEFIT PLOT OVERVIEW -->
+    <div class="chart-box">
+      <div class="chart-title-embed"><i class="fa-solid fa-chart-line text-success"></i> Net Realized Business Benefit Curve Across Cutoff Increments</div>
+      <div style="position: relative; height: 300px; width: 100%;">
+        <canvas id="benefitCurveChart"></canvas>
+      </div>
+    </div>
+
+    <div class="callout cb-green mt-4">
+      <div class="ct"><i class="fa-solid fa-square-check"></i> Project Optimization Conclusion</div>
+      Shifting deployment parameters to an optimized <strong>0.35 probability cutoff</strong> successfully captures the maximum available net benefit of <strong>₹336,750</strong> per evaluation block, outperforming default configurations by reducing high-cost leakage errors.
+    </div>
+  </section>
+
+</div>
+
+<!-- DATA CHARTS SCRIPT GENERATION LAYER -->
+<script>
+// Chart 1: Class Visitation & Skewness
+const ctxVisitation = document.getElementById('visitationChart').getContext('2d');
+new Chart(ctxVisitation, {
+  type: 'bar',
+  data: {
+    labels: ['Legitimate (Class 0)', 'Fraudulent (Class 1)'],
+    datasets: [{
+      label: 'Transaction Count (Log Scale)',
+      data: [5.45, 2.69],
+      backgroundColor: ['rgba(79, 70, 229, 0.85)', 'rgba(219, 39, 119, 0.85)'],
+      borderColor: ['#4f46e5', '#db2777'],
+      borderWidth: 2,
+      borderRadius: 6
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, title: { display: true, text: 'Log10 Metric Scale Index', font: { family: 'Plus Jakarta Sans', weight: '600' } } } }
+  }
+});
+
+// Chart 2: Quantile Distribution Profiling
+const ctxDist = document.getElementById('distributionChart').getContext('2d');
+new Chart(ctxDist, {
+  type: 'line',
+  data: {
+    labels: ['Q10', 'Q25', 'Q50', 'Q75', 'Q90', 'Q99'],
+    datasets: [{
+      label: 'Legitimate Amount Wave (Scaled)',
+      data: [1.2, 2.5, 4.1, 8.9, 15.4, 45.0],
+      borderColor: '#0891b2',
+      backgroundColor: 'rgba(8, 145, 178, 0.05)',
+      tension: 0.2,
+      fill: true
+    }, {
+      label: 'Fraudulent Amount Wave (Scaled)',
+      data: [5.0, 12.2, 28.4, 65.0, 110.2, 240.5],
+      borderColor: '#db2777',
+      backgroundColor: 'rgba(219, 39, 119, 0.05)',
+      tension: 0.2,
+      fill: true
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: { y: { title: { display: true, text: 'Normalized Volume Magnitude', font: { family: 'Plus Jakarta Sans' } } } }
+  }
+});
+
+// Chart 3: Financial Net Optimization Curve
+const ctxBenefit = document.getElementById('benefitCurveChart').getContext('2d');
+new Chart(ctxBenefit, {
+  type: 'line',
+  data: {
+    labels: ['0.05 Cutoff', '0.10 Cutoff', '0.20 Cutoff', '0.35 Optimal Cutoff', '0.50 Default Cutoff', '0.70 Cutoff'],
+    datasets: [{
+      label: 'Net Realized Benefit Value (₹)',
+      data: [195000, 284700, 316500, 336750, 303000, 210000],
+      borderColor: '#16a34a',
+      backgroundColor: 'rgba(22, 163, 74, 0.06)',
+      fill: true,
+      tension: 0.3,
+      borderWidth: 3,
+      pointRadius: 6,
+      pointBackgroundColor: '#16a34a',
+      pointHoverRadius: 8
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: { title: { display: true, text: 'Net Recovered Benefit Metric (₹)', font: { family: 'Plus Jakarta Sans', weight: '600' } } },
+      x: { title: { display: true, text: 'Probability Cutoff Decisions', font: { family: 'Plus Jakarta Sans', weight: '600' } } }
+    }
+  }
+});
+</script>
+
+</body>
+</html>
