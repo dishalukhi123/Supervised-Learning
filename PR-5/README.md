@@ -90,3 +90,10 @@ Run all cells top-to-bottom (Run → Run All Cells).
 
 ---
 *Quality is our motto — Red & White Skill Education*
+
+
+## 📱 Streamlit App Link
+
+```text
+https://smart-outcome-predictor.streamlit.app/
+```
